@@ -49,9 +49,9 @@ func TestTag(t *testing.T) {
 		return
 	}
 
-	tag.RequestMap.Range(func(key, value interface{}) bool {
-		if value.(*RequestTask).Request.URL == urlstr {
-			fmt.Println(value.(*RequestTask).ResponseBody)
+	tag.RangeRequestTask(func(key string, rt *RequestTask) bool {
+		if rt.Request.URL == urlstr {
+			fmt.Println(rt.ResponseBody)
 		}
 		return true
 	})

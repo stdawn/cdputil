@@ -157,6 +157,13 @@ func (t *Tag) Cancel() {
 	t.cancel()
 }
 
+// RangeRequestTask 遍历请求任务
+func (t *Tag) RangeRequestTask(f func(key string, rt *RequestTask) bool) {
+	t.RequestMap.Range(func(key, value interface{}) bool {
+		return f(key.(string), value.(*RequestTask))
+	})
+}
+
 // 获取请求任务
 func (t *Tag) getRequestTask(requestId network.RequestID, canNil bool) *RequestTask {
 	id := string(requestId)

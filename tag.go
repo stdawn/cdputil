@@ -22,13 +22,14 @@ import (
 
 // Tag 浏览器标签
 type Tag struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	cancel1 context.CancelFunc
+	ctx            context.Context
+	cancel         context.CancelFunc
+	cancel1        context.CancelFunc
+	requestTaskMap sync.Map //map[string]*RequestTask
 
-	RequestPausedCallback func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams
+	RequestPausedCallback    func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams
+	RequestTaskValidTypesMap map[network.ResourceType]bool // 需要保存的请求任务类型，如果为空，则全部保存
 
-	RequestMap sync.Map //map[string]*RequestTask
 }
 
 // NewTag 创建一个Tag
@@ -39,6 +40,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 	}
 	tag := new(Tag)
 
+	tag.RequestTaskValidTypesMap = make(map[network.ResourceType]bool)
 	tag.ctx, tag.cancel = chromedp.NewContext(rCtx)
 	tag.ctx, tag.cancel1 = context.WithTimeout(tag.ctx, timeout)
 
@@ -51,17 +53,21 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 					go func() {
 						err = tag.Run(fetch.ContinueRequest(ev.RequestID))
 						if err != nil {
-							rTask := tag.getRequestTask(ev.NetworkID, false)
-							rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
-							rTask.IsFinished = true
+							if tag.isResourceTypeValid(ev.ResourceType) {
+								rTask := tag.getRequestTask(ev.NetworkID, false)
+								rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
+								rTask.IsFinished = true
+							}
 						}
 					}()
 				} else {
 					go func() {
-						rTask := tag.getRequestTask(ev.NetworkID, false)
-						rTask.HasRewrite = true
-						// 重写参数(复制continueRequest)
-						rTask.RewriteParams = util.DeepCopy(continueRequest).(*fetch.ContinueRequestParams)
+						if tag.isResourceTypeValid(ev.ResourceType) {
+							rTask := tag.getRequestTask(ev.NetworkID, false)
+							rTask.HasRewrite = true
+							// 重写参数(复制continueRequest)
+							rTask.RewriteParams = util.DeepCopy(continueRequest).(*fetch.ContinueRequestParams)
+						}
 
 						if len(continueRequest.PostData) > 0 {
 							continueRequest.PostData = base64.StdEncoding.EncodeToString([]byte(continueRequest.PostData))
@@ -69,18 +75,23 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 
 						err = tag.Run(continueRequest)
 						if err != nil {
-							rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
-							rTask.IsFinished = true
+							rTask := tag.getRequestTask(ev.NetworkID, true)
+							if rTask != nil {
+								rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
+								rTask.IsFinished = true
+							}
 						}
 					}()
 				}
 			}
 
 		case *network.EventRequestWillBeSent:
-			rTask := tag.getRequestTask(ev.RequestID, false)
-			rTask.Request = ev.Request
-			rTask.Type = ev.Type
-			rTask.DocumentUrl = ev.DocumentURL
+			if tag.isResourceTypeValid(ev.Type) {
+				rTask := tag.getRequestTask(ev.RequestID, false)
+				rTask.Request = ev.Request
+				rTask.Type = ev.Type
+				rTask.DocumentUrl = ev.DocumentURL
+			}
 
 		case *network.EventResponseReceived:
 			rTask := tag.getRequestTask(ev.RequestID, true)
@@ -137,7 +148,7 @@ func (t *Tag) RunMain(actions ...chromedp.Action) error {
 		as = append(as, fetch.Enable())
 	}
 	as = append(as, actions...)
-	as = append(as, t.checkRequestTaskIsFinished())
+	as = append(as, t.checkRequestTasksIsFinished())
 	err := t.Run(as...)
 	if err != nil {
 		//ws控制连接失败时
@@ -159,15 +170,60 @@ func (t *Tag) Cancel() {
 
 // RangeRequestTask 遍历请求任务
 func (t *Tag) RangeRequestTask(f func(key string, rt *RequestTask) bool) {
-	t.RequestMap.Range(func(key, value interface{}) bool {
+	t.requestTaskMap.Range(func(key, value interface{}) bool {
 		return f(key.(string), value.(*RequestTask))
 	})
+}
+
+// GetRequestTask 获取请求任务,可为nil
+func (t *Tag) GetRequestTask(requestId string) *RequestTask {
+	r, ok := t.requestTaskMap.Load(requestId)
+	if ok {
+		return r.(*RequestTask)
+	}
+	return nil
+}
+
+// WaitRequestTaskFinish 等待请求任务完成requestIdPts为requestId的指针地址
+func (t *Tag) WaitRequestTaskFinish(requestIdPts ...*string) chromedp.ActionFunc {
+
+	return func(ctx context.Context) error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				isFinished := true
+				for _, pt := range requestIdPts {
+					requestId := *pt
+					if len(requestId) < 1 {
+						isFinished = false
+						break
+					}
+					rTask := t.GetRequestTask(requestId)
+					if rTask == nil {
+						isFinished = false
+						break
+					}
+					if !rTask.IsFinished {
+						isFinished = false
+						break
+					}
+				}
+				if isFinished {
+					return nil
+				}
+				time.Sleep(time.Millisecond * 100)
+			}
+		}
+	}
+
 }
 
 // 获取请求任务
 func (t *Tag) getRequestTask(requestId network.RequestID, canNil bool) *RequestTask {
 	id := string(requestId)
-	rt, ok := t.RequestMap.Load(id)
+	rt, ok := t.requestTaskMap.Load(id)
 	if ok {
 		return rt.(*RequestTask)
 	}
@@ -176,11 +232,24 @@ func (t *Tag) getRequestTask(requestId network.RequestID, canNil bool) *RequestT
 	}
 	rTask := new(RequestTask)
 	rTask.RequestId = id
-	t.RequestMap.Store(id, rTask)
+	t.requestTaskMap.Store(id, rTask)
 	return rTask
 }
 
-func (t *Tag) checkRequestTaskIsFinished() chromedp.ActionFunc {
+// 检查资源类型是否有效
+func (t *Tag) isResourceTypeValid(rType network.ResourceType) bool {
+	if len(t.RequestTaskValidTypesMap) < 1 {
+		return true
+	}
+	b, ok := t.RequestTaskValidTypesMap[rType]
+	if ok {
+		return b
+	}
+	return false
+}
+
+// 检测所有监控的请求任务是否完成
+func (t *Tag) checkRequestTasksIsFinished() chromedp.ActionFunc {
 	return func(ctx context.Context) error {
 		for {
 			select {
@@ -188,8 +257,8 @@ func (t *Tag) checkRequestTaskIsFinished() chromedp.ActionFunc {
 				return ctx.Err()
 			default:
 				isFinished := true
-				t.RequestMap.Range(func(key, value interface{}) bool {
-					if !value.(*RequestTask).IsFinished {
+				t.RangeRequestTask(func(key string, rt *RequestTask) bool {
+					if !rt.IsFinished {
 						isFinished = false
 						return false
 					}

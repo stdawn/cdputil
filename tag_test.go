@@ -10,25 +10,55 @@ package cdputil
 import (
 	"fmt"
 	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+var success []int
+var success1 []int
+
 func TestTag(t *testing.T) {
 
-	tag, err := NewTag(10 * time.Minute)
+	SetBrowserProgramInfo("msedge.exe", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", 9223)
+
+	wg := new(sync.WaitGroup)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		index := i
+		go func() {
+			defer wg.Done()
+			request(index + 1)
+		}()
+	}
+	wg.Wait()
+
+	fmt.Println("success0:", success)
+	fmt.Println("success1:", success1)
+
+}
+
+func request(index int) {
+	tag, err := NewTag(30 * time.Minute)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	tag.RequestTaskValidTypesMap[network.ResourceTypeXHR] = true
 
-	var urlstr = "https://www.iwencai.com/customized/chart/get-robot-data"
+	urlstr := "https://www.iwencai.com/customized/chart/get-robot-data"
+	urlstr1 := "https://www.iwencai.com/gateway/urp/v7/landing/getDataList"
+
+	requestId := ""
+	requestId1 := ""
 
 	tag.RequestPausedCallback = func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams {
-		if rp.Request.URL == urlstr {
+		if len(requestId) < 1 && rp.Request.URL == urlstr {
+			requestId = string(rp.NetworkID)
 			postData := rp.Request.PostData
 			reg := regexp.MustCompile("\"perpage\":\\w+,")
 			str := reg.FindString(postData)
@@ -36,24 +66,35 @@ func TestTag(t *testing.T) {
 				postData = strings.ReplaceAll(postData, str, "\"perpage\":100,")
 			}
 			return fetch.ContinueRequest(rp.RequestID).WithPostData(postData)
+		} else if len(requestId1) < 1 && rp.Request.URL == urlstr1 {
+			requestId1 = string(rp.NetworkID)
+			return nil
 		}
 		return nil
 	}
 	defer tag.Cancel()
 	err = tag.RunMain(
 		chromedp.Navigate("https://www.iwencai.com/unifiedwap/result?w=%E6%B6%A8%E8%B7%8C%E5%B9%85&querytype=stock"),
-		//chromedp.WaitVisible("#iwcTableWrapper > div.xuangu-bottom-tool > div.pcwencai-pagination-wrap > div.drop-down-box"),
+
+		//chromedp.Click("#iwcTableWrapper > div.xuangu-bottom-tool > div.pcwencai-pagination-wrap > div.pager > ul > li:nth-child(3) > a"),
+		tag.WaitRequestTaskFinish(&requestId),
 	)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	tag.RangeRequestTask(func(key string, rt *RequestTask) bool {
-		if rt.Request.URL == urlstr {
-			fmt.Println(rt.ResponseBody)
-		}
-		return true
-	})
+	rt := tag.GetRequestTask(requestId)
+	if rt != nil {
 
+		success = append(success, index)
+		fmt.Println(fmt.Sprintf("url0: 第%d个收到%dBytes", index, len(rt.ResponseBody)))
+	}
+
+	rt1 := tag.GetRequestTask(requestId1)
+	if rt1 != nil {
+
+		success1 = append(success1, index)
+		fmt.Println(fmt.Sprintf("url1: 第%d个收到%dBytes", index, len(rt1.ResponseBody)))
+	}
 }

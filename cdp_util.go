@@ -19,6 +19,7 @@ import (
 	"github.com/stdawn/util"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -32,8 +33,9 @@ var (
 )
 
 var (
-	remoteContext context.Context
-	remoteCancel  context.CancelFunc
+	remoteContext   context.Context
+	remoteCancel    context.CancelFunc
+	remoteContextMu sync.Mutex
 )
 
 // SetBrowserProgramInfo 设置浏览器程序信息
@@ -57,7 +59,9 @@ func HeaderConverter(header network.Headers) []*fetch.HeaderEntry {
 
 // 获取远程上下文
 func getRemoteContext() (context.Context, context.CancelFunc, error) {
-
+	remoteContextMu.Lock()
+	defer remoteContextMu.Unlock()
+	
 	devtoolsWsUrl := ""
 
 	res, err := nt.Request(nt.RequestMethodGet, fmt.Sprintf("http://localhost:%d/json/version", browserProgramPort), "", nil)

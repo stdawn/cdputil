@@ -22,13 +22,15 @@ import (
 
 // Tag 浏览器标签
 type Tag struct {
-	ctx            context.Context
-	cancel         context.CancelFunc
-	cancel1        context.CancelFunc
-	requestTaskMap sync.Map //map[string]*RequestTask
+	ctx            context.Context    //timeout context
+	cancel         context.CancelFunc //context cancel
+	cancel1        context.CancelFunc //timeout context cancel
+	rCtx           context.Context    //公用远程context
+	requestTaskMap sync.Map           //map[string]*RequestTask
 
-	RequestPausedCallback    func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams
-	RequestTaskValidTypesMap map[network.ResourceType]bool // 需要保存的请求任务类型，如果为空，则全部保存
+	IsWaitCurrentRequestTasksFinished bool //是否等待当前所有的请求任务完成, 默认为true
+	RequestPausedCallback             func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams
+	RequestTaskValidTypesMap          map[network.ResourceType]bool // 需要保存的请求任务类型，如果为空，则全部保存
 
 }
 
@@ -39,9 +41,11 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 		return nil, err
 	}
 	tag := new(Tag)
+	tag.rCtx = rCtx
 
+	tag.IsWaitCurrentRequestTasksFinished = true
 	tag.RequestTaskValidTypesMap = make(map[network.ResourceType]bool)
-	tag.ctx, tag.cancel = chromedp.NewContext(rCtx)
+	tag.ctx, tag.cancel = chromedp.NewContext(tag.rCtx)
 	tag.ctx, tag.cancel1 = context.WithTimeout(tag.ctx, timeout)
 
 	chromedp.ListenTarget(tag.ctx, func(v interface{}) {
@@ -54,7 +58,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 						err = tag.Run(fetch.ContinueRequest(ev.RequestID))
 						if err != nil {
 							if tag.isResourceTypeValid(ev.ResourceType) {
-								rTask := tag.getRequestTask(ev.NetworkID, false)
+								rTask := tag.getRequestTaskWithoutNil(ev.NetworkID)
 								rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
 								rTask.IsFinished = true
 							}
@@ -63,7 +67,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 				} else {
 					go func() {
 						if tag.isResourceTypeValid(ev.ResourceType) {
-							rTask := tag.getRequestTask(ev.NetworkID, false)
+							rTask := tag.getRequestTaskWithoutNil(ev.NetworkID)
 							rTask.HasRewrite = true
 							// 重写参数(复制continueRequest)
 							rTask.RewriteParams = util.DeepCopy(continueRequest).(*fetch.ContinueRequestParams)
@@ -75,7 +79,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 
 						err = tag.Run(continueRequest)
 						if err != nil {
-							rTask := tag.getRequestTask(ev.NetworkID, true)
+							rTask := tag.GetRequestTask(string(ev.NetworkID))
 							if rTask != nil {
 								rTask.ErrorText = fmt.Sprintf("fetch continue request error:%s", err.Error())
 								rTask.IsFinished = true
@@ -87,20 +91,20 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 
 		case *network.EventRequestWillBeSent:
 			if tag.isResourceTypeValid(ev.Type) {
-				rTask := tag.getRequestTask(ev.RequestID, false)
+				rTask := tag.getRequestTaskWithoutNil(ev.RequestID)
 				rTask.Request = ev.Request
 				rTask.Type = ev.Type
 				rTask.DocumentUrl = ev.DocumentURL
 			}
 
 		case *network.EventResponseReceived:
-			rTask := tag.getRequestTask(ev.RequestID, true)
+			rTask := tag.GetRequestTask(string(ev.RequestID))
 			if rTask != nil {
 				rTask.Response = ev.Response
 			}
 
 		case *network.EventLoadingFailed:
-			rTask := tag.getRequestTask(ev.RequestID, true)
+			rTask := tag.GetRequestTask(string(ev.RequestID))
 			if rTask != nil {
 				if len(ev.ErrorText) > 0 {
 					rTask.ErrorText += ev.ErrorText
@@ -115,7 +119,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 			}
 
 		case *network.EventLoadingFinished:
-			rTask := tag.getRequestTask(ev.RequestID, true)
+			rTask := tag.GetRequestTask(string(ev.RequestID))
 			if rTask != nil {
 				if rTask.Success() {
 					go func() {
@@ -148,13 +152,14 @@ func (t *Tag) RunMain(actions ...chromedp.Action) error {
 		as = append(as, fetch.Enable())
 	}
 	as = append(as, actions...)
-	as = append(as, t.checkRequestTasksIsFinished())
+	if t.IsWaitCurrentRequestTasksFinished {
+		as = append(as, t.checkRequestTasksIsFinished())
+	}
 	err := t.Run(as...)
 	if err != nil {
 		//ws控制连接失败时
-		if strings.Contains(err.Error(), "failed to modify wsURL") {
-			remoteContext = nil
-			remoteCancel = nil
+		if strings.Contains(err.Error(), fmt.Sprintf("could not dial \"ws://localhost:%d", GetBrowserInfo().port)) {
+			clearRemoteContext(t.rCtx)
 		}
 		return err
 	}
@@ -221,16 +226,14 @@ func (t *Tag) WaitRequestTaskFinish(requestIdPts ...*string) chromedp.ActionFunc
 }
 
 // 获取请求任务
-func (t *Tag) getRequestTask(requestId network.RequestID, canNil bool) *RequestTask {
+func (t *Tag) getRequestTaskWithoutNil(requestId network.RequestID) *RequestTask {
 	id := string(requestId)
-	rt, ok := t.requestTaskMap.Load(id)
-	if ok {
-		return rt.(*RequestTask)
+
+	rTask := t.GetRequestTask(id)
+	if rTask != nil {
+		return rTask
 	}
-	if canNil {
-		return nil
-	}
-	rTask := new(RequestTask)
+	rTask = new(RequestTask)
 	rTask.RequestId = id
 	t.requestTaskMap.Store(id, rTask)
 	return rTask

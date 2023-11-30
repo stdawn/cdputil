@@ -24,10 +24,14 @@ var success1 []int
 
 func TestTag(t *testing.T) {
 
-	SetBrowserProgramInfo("msedge.exe", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", 9223)
+	GetBrowserInfo().WithName("msedge.exe").
+		WithUrl("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe").
+		WithPort(9223).
+		WithWindowWidth(1000).
+		WithWindowHeight(500)
 
 	wg := new(sync.WaitGroup)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 30; i++ {
 		wg.Add(1)
 		index := i
 		go func() {
@@ -37,8 +41,8 @@ func TestTag(t *testing.T) {
 	}
 	wg.Wait()
 
-	fmt.Println("success0:", success)
-	fmt.Println("success1:", success1)
+	fmt.Println("success0 count=", len(success), ": ", success)
+	fmt.Println("success1:count=", len(success1), ": ", success1)
 
 }
 
@@ -49,6 +53,7 @@ func request(index int) {
 		return
 	}
 	tag.RequestTaskValidTypesMap[network.ResourceTypeXHR] = true
+	tag.IsWaitCurrentRequestTasksFinished = false
 
 	urlstr := "https://www.iwencai.com/customized/chart/get-robot-data"
 	urlstr1 := "https://www.iwencai.com/gateway/urp/v7/landing/getDataList"
@@ -75,9 +80,10 @@ func request(index int) {
 	defer tag.Cancel()
 	err = tag.RunMain(
 		chromedp.Navigate("https://www.iwencai.com/unifiedwap/result?w=%E6%B6%A8%E8%B7%8C%E5%B9%85&querytype=stock"),
-
-		//chromedp.Click("#iwcTableWrapper > div.xuangu-bottom-tool > div.pcwencai-pagination-wrap > div.pager > ul > li:nth-child(3) > a"),
 		tag.WaitRequestTaskFinish(&requestId),
+		//点击事件只适用于单线程
+		//chromedp.Click("#iwcTableWrapper > div.xuangu-bottom-tool > div.pcwencai-pagination-wrap > div.pager > ul > li:nth-child(3) > a"),
+		//tag.WaitRequestTaskFinish(&requestId1),
 	)
 	if err != nil {
 		fmt.Println(err)

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/storage"
 	"github.com/chromedp/chromedp"
 	nt "github.com/stdawn/network"
 	"github.com/stdawn/util"
@@ -69,6 +70,24 @@ func CookieConverter(cookies []*network.Cookie) []*http.Cookie {
 		cs = append(cs, c)
 	}
 	return cs
+}
+
+// GetCookies 获取特定域名的Cookies
+func GetCookies(ctx context.Context, domain string) ([]*http.Cookie, error) {
+	cookies, err := storage.GetCookies().Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	newCookies := make([]*network.Cookie, 0)
+	for _, cookie := range cookies {
+		if cookie.Domain == domain {
+			newCookies = append(newCookies, cookie)
+		}
+	}
+
+	cs := CookieConverter(newCookies)
+	return cs, nil
 }
 
 // 清除远程上下文

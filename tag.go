@@ -28,7 +28,8 @@ type Tag struct {
 	rCtx           context.Context    //公用远程context
 	requestTaskMap sync.Map           //map[string]*RequestTask
 
-	IsWaitCurrentRequestTasksFinished bool //是否等待当前所有的请求任务完成, 默认为true
+	IsWaitCurrentRequestTasksFinished bool          //是否等待当前所有的请求任务完成(或超时), 默认为true
+	RequestTimeout                    time.Duration //请求超时时间，默认1min
 	RequestPausedCallback             func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams
 	RequestTaskValidTypesMap          map[network.ResourceType]bool // 需要保存的请求任务类型，如果为空，则全部保存
 
@@ -44,6 +45,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 	tag.rCtx = rCtx
 
 	tag.IsWaitCurrentRequestTasksFinished = true
+	tag.RequestTimeout = 1 * time.Minute
 	tag.RequestTaskValidTypesMap = make(map[network.ResourceType]bool)
 	tag.ctx, tag.cancel = chromedp.NewContext(tag.rCtx)
 	tag.ctx, tag.cancel1 = context.WithTimeout(tag.ctx, timeout)
@@ -95,6 +97,7 @@ func NewTag(timeout time.Duration) (*Tag, error) {
 				rTask.Request = ev.Request
 				rTask.Type = ev.Type
 				rTask.DocumentUrl = ev.DocumentURL
+				rTask.RequestStartTime = ev.WallTime.Time()
 			}
 
 		case *network.EventResponseReceived:
@@ -189,7 +192,7 @@ func (t *Tag) GetRequestTask(requestId string) *RequestTask {
 	return nil
 }
 
-// WaitRequestTaskFinish 等待请求任务完成requestIdPts为requestId的指针地址
+// WaitRequestTaskFinish 等待请求任务完成(不计算请求超时),requestIdPts为requestId的指针地址
 func (t *Tag) WaitRequestTaskFinish(requestIdPts ...*string) chromedp.ActionFunc {
 
 	return func(ctx context.Context) error {
@@ -261,7 +264,7 @@ func (t *Tag) checkRequestTasksIsFinished() chromedp.ActionFunc {
 			default:
 				isFinished := true
 				t.RangeRequestTask(func(key string, rt *RequestTask) bool {
-					if !rt.IsFinished {
+					if !rt.IsFinished && !rt.IsTimeout(t.RequestTimeout) {
 						isFinished = false
 						return false
 					}

@@ -17,8 +17,10 @@ import (
 	"github.com/chromedp/chromedp"
 	nt "github.com/stdawn/network"
 	"github.com/stdawn/util"
+	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +38,37 @@ func HeaderConverter(header network.Headers) []*fetch.HeaderEntry {
 		hs = append(hs, &fetch.HeaderEntry{Name: k, Value: v.(string)})
 	}
 	return hs
+}
+
+// CookieConverter []*network.Cookie转为[]*http.Cookie
+func CookieConverter(cookies []*network.Cookie) []*http.Cookie {
+	cs := make([]*http.Cookie, 0)
+	for _, cookie := range cookies {
+
+		c := &http.Cookie{
+			Name:     cookie.Name,
+			Value:    cookie.Value,
+			Domain:   cookie.Domain,
+			Path:     cookie.Path,
+			HttpOnly: cookie.HTTPOnly,
+			Secure:   cookie.Secure,
+			Expires:  time.Unix(int64(cookie.Expires), 0),
+		}
+
+		lowerVal := strings.ToLower(cookie.SameSite.String())
+		switch lowerVal {
+		case "lax":
+			c.SameSite = http.SameSiteLaxMode
+		case "strict":
+			c.SameSite = http.SameSiteStrictMode
+		case "none":
+			c.SameSite = http.SameSiteNoneMode
+		default:
+			c.SameSite = http.SameSiteDefaultMode
+		}
+		cs = append(cs, c)
+	}
+	return cs
 }
 
 // 清除远程上下文

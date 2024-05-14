@@ -13,6 +13,7 @@ import (
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"time"
 )
 
 type RequestMethod string
@@ -57,6 +58,15 @@ func Request(method RequestMethod, urlStr, params string, headers map[string]str
 			useNavigate = true
 		}
 	}
+	var err error = nil
+	if tag == nil {
+		tag, err = NewTag(10 * time.Minute)
+		if err != nil {
+			return "", err
+		}
+		tag.IsWaitCurrentRequestTasksFinished = false
+		defer tag.Cancel()
+	}
 	requestId := ""
 	tag.RequestPausedCallback = func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams {
 		if len(requestId) < 1 && rp.Request.URL == urlStr {
@@ -75,14 +85,14 @@ func Request(method RequestMethod, urlStr, params string, headers map[string]str
 			chromedp.Navigate(urlStr),
 			tag.WaitRequestTaskFinish(&requestId),
 		)
-		err := tag.RunMain(ts...)
+		err = tag.RunMain(ts...)
 		if err != nil {
 			return "", err
 		}
 	} else {
 
 		cUrl := ""
-		err := tag.RunMain(
+		err = tag.RunMain(
 			chromedp.Evaluate("window.location.href", &cUrl),
 		)
 		if err != nil {

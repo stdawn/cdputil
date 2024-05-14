@@ -32,20 +32,37 @@ func TestNewTag(t *testing.T) {
 	tag.RequestTaskValidTypesMap[network.ResourceTypeXHR] = true
 	tag.IsWaitCurrentRequestTasksFinished = true
 
-	urlstr := "https://www.baidu.com/sugrec"
+	urlstr := "https://31006404-48.hd.webportal.top/31006404/vaOGumx0xp_LySZXfwOsWQ/load.html?style=123&canal=-1&isOfficialLianjie=false"
 
+	js := "Object.defineProperty(navigator, 'userAgent', {\n    value: \"android; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 micromessenger/7.0 NetType/WIFI\",\n    writable: false\n});"
 	requestId := ""
 	tag.RequestPausedCallback = func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams {
 		if len(requestId) < 1 && strings.HasPrefix(rp.Request.URL, urlstr) {
 			requestId = string(rp.NetworkID)
-			return nil
 		}
-		return nil
+		headers := rp.Request.Headers
+		hs := make([]*fetch.HeaderEntry, 0)
+		for k, v := range headers {
+			if k == "User-Agent" {
+				v = "android; AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 micromessenger/7.0 NetType/WIFI"
+			}
+			if strings.HasPrefix(k, "sec") {
+				continue
+			}
+			hs = append(hs, &fetch.HeaderEntry{Name: k, Value: v.(string)})
+		}
+		return fetch.ContinueRequest(rp.RequestID).WithHeaders(hs)
+
 	}
+
 	defer tag.Cancel()
 	err = tag.RunMain(
-		chromedp.Navigate("https://www.baidu.com"),
-		tag.WaitRequestTaskFinish(&requestId),
+		chromedp.Tasks{
+			network.Enable(),
+			chromedp.Evaluate(js, nil),
+			chromedp.Navigate(urlstr),
+			chromedp.Sleep(time.Hour),
+		}...,
 	)
 	if err != nil {
 		fmt.Println(err)

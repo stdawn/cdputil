@@ -1,7 +1,7 @@
 /**
  * @Time: 2023/11/22 14:55
  * @Author: LiuKun
- * @File: cdp_util.go
+ * @File: remote_context.go
  * @Description:
  */
 
@@ -12,16 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/chromedp/cdproto/fetch"
-	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/cdproto/storage"
 	"github.com/chromedp/chromedp"
 	nt "github.com/stdawn/network"
 	"github.com/stdawn/util"
-	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 )
@@ -31,64 +26,6 @@ var (
 	remoteCancel    context.CancelFunc
 	remoteContextMu sync.Mutex
 )
-
-// HeaderConverter network.Headers转为[]*fetch.HeaderEntry
-func HeaderConverter(header network.Headers) []*fetch.HeaderEntry {
-	hs := make([]*fetch.HeaderEntry, 0)
-	for k, v := range header {
-		hs = append(hs, &fetch.HeaderEntry{Name: k, Value: v.(string)})
-	}
-	return hs
-}
-
-// CookieConverter []*network.Cookie转为[]*http.Cookie
-func CookieConverter(cookies []*network.Cookie) []*http.Cookie {
-	cs := make([]*http.Cookie, 0)
-	for _, cookie := range cookies {
-
-		c := &http.Cookie{
-			Name:     cookie.Name,
-			Value:    cookie.Value,
-			Domain:   cookie.Domain,
-			Path:     cookie.Path,
-			HttpOnly: cookie.HTTPOnly,
-			Secure:   cookie.Secure,
-			Expires:  time.Unix(int64(cookie.Expires), 0),
-		}
-
-		lowerVal := strings.ToLower(cookie.SameSite.String())
-		switch lowerVal {
-		case "lax":
-			c.SameSite = http.SameSiteLaxMode
-		case "strict":
-			c.SameSite = http.SameSiteStrictMode
-		case "none":
-			c.SameSite = http.SameSiteNoneMode
-		default:
-			c.SameSite = http.SameSiteDefaultMode
-		}
-		cs = append(cs, c)
-	}
-	return cs
-}
-
-// GetCookies 获取特定域名的Cookies
-func GetCookies(ctx context.Context, domain string) ([]*http.Cookie, error) {
-	cookies, err := storage.GetCookies().Do(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	newCookies := make([]*network.Cookie, 0)
-	for _, cookie := range cookies {
-		if cookie.Domain == domain {
-			newCookies = append(newCookies, cookie)
-		}
-	}
-
-	cs := CookieConverter(newCookies)
-	return cs, nil
-}
 
 // 清除远程上下文
 func clearRemoteContext(c context.Context) {

@@ -91,6 +91,10 @@ func Request(method RequestMethod, urlStr, params string, headers map[string]str
 		}
 	} else {
 
+		if len(baseUrl) < 1 {
+			baseUrl = "about:blank"
+		}
+
 		cUrl := ""
 		err = tag.RunMain(
 			chromedp.Evaluate("window.location.href", &cUrl),

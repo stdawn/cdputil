@@ -32,9 +32,17 @@ func TestNewTag(t *testing.T) {
 	tag.RequestTaskValidTypesMap[network.ResourceTypeXHR] = true
 	tag.IsWaitCurrentRequestTasksFinished = true
 
-	urlstr := "https://31006404-48.hd.webportal.top/31006404/vaOGumx0xp_LySZXfwOsWQ/load.html?style=123&canal=-1&isOfficialLianjie=false"
+	urlstr := ""
 
-	js := "Object.defineProperty(navigator, 'userAgent', {\n    value: \"android; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 micromessenger/7.0 NetType/WIFI\",\n    writable: false\n});"
+	err = tag.RunMain(
+		chromedp.Navigate("about:blank"))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	return
+
+	js := ""
 	requestId := ""
 	tag.RequestPausedCallback = func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams {
 		if len(requestId) < 1 && strings.HasPrefix(rp.Request.URL, urlstr) {

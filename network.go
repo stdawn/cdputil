@@ -13,6 +13,7 @@ import (
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"strings"
 	"time"
 )
 
@@ -111,13 +112,16 @@ func Request(method RequestMethod, urlStr, params string, headers map[string]str
 		js := "var xhr = new XMLHttpRequest();"
 		js = js + fmt.Sprintf("xhr.open('%s', '%s', true);", method, urlStr)
 
-		if method.HasBody() {
-			js = js + fmt.Sprintf("xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=utf-8');")
-		}
-
+		hasContentType := false
 		//设置header
 		for k, v := range headers {
 			js = js + fmt.Sprintf("xhr.setRequestHeader('%s', '%s');", k, v)
+			if strings.ToLower(k) == "content-type" {
+				hasContentType = true
+			}
+		}
+		if method.HasBody() && !hasContentType {
+			js = js + fmt.Sprintf("xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=utf-8');")
 		}
 
 		if method.HasBody() {

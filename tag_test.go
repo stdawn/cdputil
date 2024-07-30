@@ -32,7 +32,7 @@ func TestNewTag(t *testing.T) {
 	tag.RequestTaskValidTypesMap[network.ResourceTypeXHR] = true
 	tag.IsWaitCurrentRequestTasksFinished = true
 
-	urlstr := ""
+	urlStr := ""
 
 	err = tag.RunMain(
 		chromedp.Navigate("about:blank"))
@@ -40,20 +40,17 @@ func TestNewTag(t *testing.T) {
 		fmt.Println(err)
 		return
 	}
-	return
 
 	js := ""
 	requestId := ""
 	tag.RequestPausedCallback = func(rp *fetch.EventRequestPaused) *fetch.ContinueRequestParams {
-		if len(requestId) < 1 && strings.HasPrefix(rp.Request.URL, urlstr) {
+		if len(requestId) < 1 && strings.HasPrefix(rp.Request.URL, urlStr) {
 			requestId = string(rp.NetworkID)
+			//doSomething
 		}
 		headers := rp.Request.Headers
 		hs := make([]*fetch.HeaderEntry, 0)
 		for k, v := range headers {
-			if k == "User-Agent" {
-				v = "android; AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 micromessenger/7.0 NetType/WIFI"
-			}
 			if strings.HasPrefix(k, "sec") {
 				continue
 			}
@@ -68,7 +65,7 @@ func TestNewTag(t *testing.T) {
 		chromedp.Tasks{
 			network.Enable(),
 			chromedp.Evaluate(js, nil),
-			chromedp.Navigate(urlstr),
+			chromedp.Navigate(urlStr),
 			chromedp.Sleep(time.Hour),
 		}...,
 	)

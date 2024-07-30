@@ -9,6 +9,7 @@ package cdputil
 
 import (
 	"context"
+	"encoding/base64"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/storage"
@@ -16,6 +17,18 @@ import (
 	"strings"
 	"time"
 )
+
+// GetPostData 获取postData
+func GetPostData(r *network.Request) string {
+	if r.HasPostData && len(r.PostDataEntries) > 0 {
+		postDataBase64 := r.PostDataEntries[0].Bytes
+		postDataBytes, err := base64.StdEncoding.DecodeString(postDataBase64)
+		if err == nil {
+			return string(postDataBytes)
+		}
+	}
+	return ""
+}
 
 // HeaderFromMap map[string]string转为network.Headers
 func HeaderFromMap(header map[string]string) network.Headers {

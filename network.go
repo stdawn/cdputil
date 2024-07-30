@@ -35,6 +35,11 @@ func (rm RequestMethod) HasBody() bool {
 	return rm != RequestMethodGet && rm != RequestMethodHead
 }
 
+// String 转为字符串
+func (rm RequestMethod) String() string {
+	return string(rm)
+}
+
 // RequestRetry 带重试请求
 func RequestRetry(retryCount int, method RequestMethod, urlStr, params string, headers map[string]string, tag *Tag, baseUrl string) (string, error) {
 	var response = ""
